@@ -2,15 +2,16 @@
 
 namespace blink\auth;
 
-use blink\core\Object;
+use blink\core\BaseObject;
 use blink\auth\Contract as AuthContract;
+use blink\session\Session;
 
 /**
  * Class Auth
  *
  * @package blink\auth
  */
-class Auth extends Object implements AuthContract
+class Auth extends BaseObject implements AuthContract
 {
     /**
      * The class that implements Authenticatable interface.
@@ -90,8 +91,14 @@ class Auth extends Object implements AuthContract
     {
         $class = $this->model;
 
-        if ($bag = session()->get($sessionId)) {
-            return $class::findIdentity($bag->get('auth_id'));
+        if ($sessionId instanceof Session) {
+            $bag = $sessionId;
+        } else {
+            $bag = session()->get($sessionId);
+        }
+
+        if ($bag && ($authId = $bag->get('auth_id')) !== null) {
+            return $class::findIdentity($authId);
         }
     }
 }

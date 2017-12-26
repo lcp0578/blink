@@ -30,7 +30,6 @@ return [
 ];
 ```
 
-
 带参数的路由
 ----------
 
@@ -64,6 +63,23 @@ return [
 ];
 ```
 
+路由分组
+-------
+
+对于大型项目, 为了更好的组织路由, 我们可以对路由进行分组, 同一组路由拥有统一的前缀:
+
+```php
+return [
+    ['/api', [
+        ['GET', '/foo', 'handler1']
+        ['GET', '/bar', 'handler2']
+    ]]
+];
+```
+
+该示例定义了一个分组路由, 这一组路由都以 `/api` 为前缀, 一个路由分组由两部分组成, 分组前缀和子路由定义, 子路由定义与普通路由定义的方式一致。 
+
+
 控制器
 -----
 
@@ -71,7 +87,7 @@ return [
 
 ```php
 return [
-    ['GET', '/', '/app/http/controllers/IndexController@index']
+    ['GET', '/', '\app\http\controllers\IndexController@index']
 ];
 ```
 

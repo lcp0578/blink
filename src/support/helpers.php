@@ -49,6 +49,16 @@ function app($service = null)
 }
 
 /**
+ * Helper function to get log service.
+ *
+ * @return \blink\log\Logger
+ */
+function logger()
+{
+    return Container::$app->get('log');
+}
+
+/**
  * Helper function to get session service.
  *
  * @return \blink\session\Contract
@@ -99,4 +109,8 @@ function response()
 function abort($status, $message = null)
 {
     throw new HttpException($status, $message);
+}
+
+if (version_compare(PHP_VERSION, '7.2') < 0) {
+    class_alias(blink\core\BaseObject::class, blink\core\Object::class);
 }

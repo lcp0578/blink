@@ -11,6 +11,7 @@ your-app/                   应用根目录
             app.php         应用基本配置
             server.php      Swoole 服务器配置
             services.php    应用服务配置
+            plugins.php     应用插件配置
         console/            控制台命令相关
         http/               Http 相关
             controllers/    控制器文件夹
@@ -20,7 +21,7 @@ your-app/                   应用根目录
     tests/                  应用单元测试或功能测试
     runtime/                应用运行时临时数据，如日志
     vendor/                 所有 Composer 安装的软件包
-    blink                   Blink 命令行脚本入后
+    blink                   Blink 命令行脚本入口
 ```
 
 当然，Blink 提供足够灵活的自定义功能，如果你觉得该目录结构并不满足你的需求，你完全可以配置出任何你需要的目录结构。

@@ -5,21 +5,21 @@ namespace blink\http;
 use blink\auth\Authenticatable;
 use blink\core\MiddlewareTrait;
 use blink\core\NotSupportedException;
-use blink\core\Object;
+use blink\core\BaseObject;
 use blink\core\ShouldBeRefreshed;
 
 /**
  * Class Request
  *
- * @property ParamBag $params The collection of query parameters
- * @property HeaderBag $headers The collection of request headers
- * @property HeaderBag $body The collection of request body
- *
+ * @property ParamBag               $params  The collection of query parameters
+ * @property HeaderBag              $headers The collection of request headers
+ * @property ParamBag               $body    The collection of request body
+ * @property FileBag                $files   The collection of uploaded files
+ * @property CookieBag              $cookies The collection of received cookies.
  * @property \blink\session\Session $session The session associated to the request
- *
  * @package blink\http
  */
-class Request extends Object implements ShouldBeRefreshed
+class Request extends BaseObject implements ShouldBeRefreshed
 {
     use MiddlewareTrait;
 
@@ -49,21 +49,20 @@ class Request extends Object implements ShouldBeRefreshed
 
     /**
      * The key of a header field that stores the session id, or a callable that will returns the session id.
-     *
      * The following is the signature of the callable:
-     *
      * ```
      * string function (Request $request);
      * ```
+     *
+     * **deprecated**
+     *
+     * The sessionKey configuration is deprecated since v0.3.1, which will be removed in future release, please using
+     * CookieAuthenticator or custom middleware to resolve the session of a request.
+     *
      * @var string|callable
+     * @deprecated
      */
     public $sessionKey = 'X-Session-Id';
-
-    private $_params;
-
-    private $_body;
-
-    private $_headers;
 
     public function method()
     {
@@ -99,8 +98,18 @@ class Request extends Object implements ShouldBeRefreshed
      */
     public function secure()
     {
+        if ($this->headers->first('x-forwarded-proto') === 'https') {
+            return true;
+        }
+
+        if ((int)$this->headers->first('x-forwarded-port') === 443) {
+            return true;
+        }
+
         return 'HTTPS' === explode('/', $this->protocol)[0];
     }
+
+    private $_params;
 
     public function setParams($params = [])
     {
@@ -125,6 +134,8 @@ class Request extends Object implements ShouldBeRefreshed
         return $this->_params = new ParamBag($params);
     }
 
+    private $_headers;
+
     public function setHeaders($headers = [])
     {
         if (!$headers instanceof HeaderBag) {
@@ -142,6 +153,8 @@ class Request extends Object implements ShouldBeRefreshed
 
         return $this->_headers;
     }
+
+    private $_body;
 
     public function getBody()
     {
@@ -167,6 +180,66 @@ class Request extends Object implements ShouldBeRefreshed
         $this->_body = $body;
     }
 
+    private $_files;
+
+    /**
+     * Defines the setter for files property.
+     *
+     * @param array $files
+     */
+    public function setFiles($files = [])
+    {
+        if (!$files instanceof FileBag) {
+            $files = new FileBag($files);
+        }
+
+        $this->_files = $files;
+    }
+
+    /**
+     * Defines the getter for files property.
+     *
+     * @return FileBag
+     */
+    public function getFiles()
+    {
+        if ($this->_files === null) {
+            $this->_files = new FileBag();
+        }
+
+        return $this->_files;
+    }
+
+    private $_cookies;
+
+    /**
+     * Defines the setter for cookie property.
+     *
+     * @param $cookies
+     */
+    public function setCookies($cookies)
+    {
+        if (!$cookies instanceof CookieBag) {
+            $cookies = new CookieBag(CookieBag::normalize($cookies));
+        }
+
+        $this->_cookies = $cookies;
+    }
+
+    /**
+     * Defines the getter for cookies property.
+     *
+     * @return CookieBag
+     */
+    public function getCookies()
+    {
+        if ($this->_cookies === null) {
+            $this->_cookies = new CookieBag();
+        }
+
+        return $this->_cookies;
+    }
+
     public function host()
     {
         $parts = explode(':', $this->headers->first('Host', 'localhost'));
@@ -177,12 +250,12 @@ class Request extends Object implements ShouldBeRefreshed
             return $host;
         }
 
-        $port = $parts[1];
+        $port = (int)$parts[1];
         $secure = $this->secure();
 
-        if ((!$secure && $port == 80) || ($secure && $port == 443)) {
+        if ((!$secure && $port === 80) || ($secure && $port === 443)) {
             return $host;
-        }else {
+        } else {
             return $host . ':' . $port;
         }
     }
@@ -253,10 +326,13 @@ class Request extends Object implements ShouldBeRefreshed
     {
         $parsedBody = [];
         $contentType = $this->getContentType();
-        if ($contentType == 'application/json') {
+
+        if ($contentType === 'application/json') {
             $parsedBody = json_decode($body, true);
-        } else if ($contentType == 'application/x-www-form-urlencoded') {
+        } elseif ($contentType === 'application/x-www-form-urlencoded') {
             parse_str($body, $parsedBody);
+        } elseif ($contentType === 'multipart/form-data') {
+            // noop
         } else {
             throw new NotSupportedException("The content type: '$contentType' does not supported");
         }
@@ -278,7 +354,7 @@ class Request extends Object implements ShouldBeRefreshed
     /**
      * Gets a input value by key.
      *
-     * @param $key
+     * @param      $key
      * @param null $default
      * @return mixed
      */
@@ -288,7 +364,7 @@ class Request extends Object implements ShouldBeRefreshed
             return $value;
         }
 
-        if (($value == $this->body->get($key)) !== null) {
+        if (($value = $this->body->get($key)) !== null) {
             return $value;
         }
 
@@ -328,8 +404,8 @@ class Request extends Object implements ShouldBeRefreshed
     public function getSession()
     {
         if ($this->_session === false) {
-            $sessionId = is_callable($this->sessionKey) ?
-                call_user_func($this->sessionKey, $this) : $this->headers->first($this->sessionKey);
+            $sessionId = is_callable($this->sessionKey) ? call_user_func($this->sessionKey,
+                $this) : $this->headers->first($this->sessionKey);
             if ($session = session()->get($sessionId)) {
                 $this->_session = $session;
             } else {
@@ -352,13 +428,13 @@ class Request extends Object implements ShouldBeRefreshed
     {
         if ($user !== null) {
             $this->_user = $user;
+
             return;
         }
 
         if ($this->_user === false) {
-
             if (($session = $this->getSession()) && $session->id) {
-                $this->_user = auth()->who($session->id);
+                $this->_user = auth()->who($session);
             } else {
                 $this->_user = null;
             }

@@ -20,21 +20,21 @@ class BasicAccess implements MiddlewareContract
     public $identity = 'name';
 
     /**
-     * @param Request $request
+     * @param Request $owner
      */
-    public function handle($request)
+    public function handle($owner)
     {
-        $value = $request->headers->first('Authorization');
+        $value = $owner->headers->first('Authorization');
         if (!$value) {
             return;
         }
 
         $parts = preg_split('/\s+/', $value);
-        if (count($parts) < 2 && strtolower($parts[0]) != 'basic') {
+        if (count($parts) < 2 && strtolower($parts[0]) !== 'basic') {
             return;
         }
 
-        list($username, $password) = explode(':', base64_decode($parts[1]));
+        list($username, $password) = explode(':', base64_decode($parts[1], true));
 
         auth()->attempt([
             $this->identity => $username,

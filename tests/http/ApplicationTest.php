@@ -2,7 +2,7 @@
 
 namespace blink\tests\http;
 
-use blink\core\Object;
+use blink\core\BaseObject;
 use blink\core\ErrorHandler;
 use blink\core\Application;
 use blink\http\Request;
@@ -10,21 +10,28 @@ use blink\http\Response;
 use blink\log\Logger;
 use blink\tests\TestCase;
 
-
 class ApplicationTest extends TestCase
 {
     protected function createApplication()
     {
         $application = new Application(['root' => '.']);
-        $application
-            ->route('GET', '/', function () {
-                return 'hello';
-            })
-            ->route('GET', '/{a}/plus/{b}', function ($a, $b, Request $request) {
-                return $a + $b;
-            })
-            ->route('GET', '/{a}/multi/{b}', 'blink\tests\http\TestController@compute')
-            ->bootstrap();
+        $application->route('GET', '/', function () {
+            return 'hello';
+        })
+                    ->route('GET', '/{a}/plus/{b}', function ($a, $b, Request $request) {
+                        return $a + $b;
+                    })
+                    ->route('GET', '/{a}/multi/{b}', 'blink\tests\http\TestController@compute')
+                    ->group('/admin', [
+                        [
+                            'GET',
+                            '/orders',
+                            function () {
+                                return 'orders';
+                            }
+                        ]
+                    ])
+                    ->bootstrapIfNeeded();
 
         return $application;
     }
@@ -62,10 +69,19 @@ class ApplicationTest extends TestCase
         $this->assertEquals(200, $response->content());
         $this->assertEquals('bar', $request->params->get('foo'));
     }
+
+    public function testGroupRoute()
+    {
+        $app = $this->createApplication();
+
+        $response = $app->handleRequest($request = $this->createRequest($app, '/admin/orders'));
+
+        $this->assertEquals('orders', $response->content());
+    }
 }
 
 
-class TestController extends Object
+class TestController extends BaseObject
 {
     public function __construct(Request $request, $config = [])
     {
@@ -73,6 +89,7 @@ class TestController extends Object
 
         parent::__construct($config);
     }
+
     public function compute($a, $b, Response $response)
     {
         $response->with($a * $b);

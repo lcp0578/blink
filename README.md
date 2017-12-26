@@ -1,18 +1,23 @@
-Blink - A web framework built for high performance services
-===========================================================
+Blink - A high performance web framework and application server in PHP
+======================================================================
 
 [![Build Status](https://travis-ci.org/bixuehujin/blink.svg?branch=master)](https://travis-ci.org/bixuehujin/blink)
 [![Latest Stable Version](https://poser.pugx.org/blink/blink/v/stable)](https://packagist.org/packages/blink/blink)
 [![Latest Unstable Version](https://poser.pugx.org/blink/blink/v/unstable)](https://packagist.org/packages/blink/blink)
 
 
-Blink is a micro web framework build for long-running and high performance services, the design heavily inspired by Yii2
+Blink is a micro web framework for building long-running and high performance services, the design heavily inspired by Yii2
 and Laravel. Blink aims to provide the most expressive and elegant API and try to make the experience of web development
 as pleasant as possible.
 
-Besides, Blink is not like other frameworks that run upon php-fpm or Apache's mod_php; we use the
-[Swoole extension](https://github.com/swoole/swoole-src) to serve requests directly in PHP. This can easily make
+Besides, Blink is also an application server that can serve requests directly in PHP, without php-fpm or Apache's mod_php.
+we use the [Swoole extension](https://github.com/swoole/swoole-src) as the underlying networking library. This can easily make
 our PHP application 100% faster in just a blink.
+
+## Community
+
+ * Gitter (Worldwide): [![Join the chat at https://gitter.im/bixuehujin/blink](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/bixuehujin/blink?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+ * QQ群 (China): 114632054 (暗号: blink)
 
 ## Why build this?
 
@@ -33,6 +38,7 @@ I'm finally very glad to announce that **Blink** is exactly the answer!
 * Authentication & Authorization abstraction
 * Session Management abstraction
 * Middleware support for Request and Response
+* Plugins support
 * PHPUnit integration for unit tests
 
 ## Installation
@@ -47,9 +53,14 @@ composer create-project --prefer-dist blink/seed your-app
 
 Blink is fully documented in both English and Chinese:
 
- * [English Documentation](docs/en/README.md)
- * [简体中文文档](docs/zh-CN/README.md)
+ * [English Documentation](https://docs.rethinkphp.com/blink-framework/v0.3/en/)
+ * [简体中文文档](https://docs.rethinkphp.com/blink-framework/v0.3/zh-CN/)
 
+## Related Projects
+
+ * [blink-redis](https://github.com/rethinkphp/blink-redis) A Redis component for the Blink Framework
+ * [blink-sentry](https://github.com/bixuehujin/blink-sentry) The Sentry integration for Blink Framework.
+ * [notejam_blink](https://github.com/Whyounes/notejam_blink) A notejam demo application for Blink.
 
 ## Participating
 

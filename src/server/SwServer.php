@@ -18,6 +18,21 @@ class SwServer extends Server
     public $maxRequests = 10000;
 
     /**
+     * The max package length in bytes for swoole, which is default to 2M (1024 * 1024 * 2). Please refer
+     * http://wiki.swoole.com/wiki/page/301.html for more detailed information.
+     *
+     * @var int
+     */
+    public $maxPackageLength;
+
+    /**
+     * The output buffer size, see http://wiki.swoole.com/wiki/page/440.html
+     *
+     * @var int
+     */
+    public $outputBufferSize;
+
+    /**
      * The number of workers should be started to serve requests.
      *
      * @var int
@@ -39,7 +54,14 @@ class SwServer extends Server
     public $logFile;
 
 
-    private function normalizedConfig()
+    public function init()
+    {
+        if (!extension_loaded('swoole')) {
+            throw new \RuntimeException('The Swoole extension is required to run blink in SwServer.');
+        }
+    }
+
+    protected function normalizedConfig()
     {
         $config = [];
 
@@ -54,10 +76,18 @@ class SwServer extends Server
             $config['log_file'] = $this->logFile;
         }
 
+        if ($this->maxPackageLength) {
+            $config['package_max_length'] = $this->maxPackageLength;
+        }
+
+        if ($this->outputBufferSize) {
+            $config['buffer_output_size'] = $this->outputBufferSize;
+        }
+
         return $config;
     }
 
-    private function createServer()
+    protected function createServer()
     {
         $server = new \swoole_http_server($this->host, $this->port);
 
@@ -100,7 +130,8 @@ class SwServer extends Server
 
     public function onServerStart($server)
     {
-        cli_set_process_title($this->name . ': master');
+        $this->setProcessTitle($this->name . ': master');
+
         if ($this->pidFile) {
             file_put_contents($this->pidFile, $server->master_pid);
         }
@@ -108,7 +139,7 @@ class SwServer extends Server
 
     public function onManagerStart($server)
     {
-        cli_set_process_title($this->name . ': manager');
+        $this->setProcessTitle($this->name . ': manager');
     }
 
     public function onServerStop()
@@ -120,23 +151,46 @@ class SwServer extends Server
 
     public function onWorkerStart()
     {
-        cli_set_process_title($this->name . ': worker');
-        $this->startApp();
+        $this->setProcessTitle($this->name . ': worker');
+
+        $this->createApplication();
+    }
+    
+    protected function setProcessTitle($title)
+    {
+        if (@cli_set_process_title($title) !== false) {
+            return;
+        }
+
+        if (PHP_OS !== 'Darwin') {
+            $error = error_get_last();
+            trigger_error($error['message'], E_USER_WARNING);
+        } elseif (extension_loaded('proctitle')) {
+            setproctitle($title);
+        }
     }
 
     public function onWorkerStop()
     {
-        $this->stopApp();
+        $this->shutdownApplication();
     }
 
-    public function onTask()
+    public function onTask($server, $taskId, $fromId, $data)
     {
-
     }
 
-    public function onFinish()
+    public function onFinish($server, $taskId, $data)
     {
+    }
 
+    protected function normalizeFiles($files)
+    {
+        foreach ($files as $name => &$file) {
+            $file['tmpName'] = $file['tmp_name'];
+            unset($file['tmp_name']);
+        }
+
+        return $files;
     }
 
     protected function prepareRequest($request)
@@ -146,26 +200,33 @@ class SwServer extends Server
             'method' => $request->server['request_method'],
             'path' => $request->server['request_uri'],
             'headers' => $request->header,
-            'params' => isset($request->get) ? $request->get : [],
-            'content' => $request->rawcontent()
+            'queryString' => isset($request->server['query_string']) ? $request->server['query_string'] : '',
+            'cookies' => isset($request->cookie) ? $request->cookie : [],
+            'content' => $request->rawContent()
         ];
+
+        if (!empty($request->files)) {
+            $config['files'] = $this->normalizeFiles($request->files);
+        }
 
         return app()->makeRequest($config);
     }
 
     public function onRequest($request, $response)
     {
-        $res = $this->handleRequest($this->prepareRequest($request));
+        $res = app()->handleRequest($this->prepareRequest($request));
 
         $content = $res->content();
 
         foreach ($res->headers->all() as $name => $values) {
             $name = str_replace(' ', '-', ucwords(str_replace('-', ' ', $name)));
-            foreach($values as $value) {
+            foreach ($values as $value) {
                 $response->header($name, $value);
             }
         }
-        $response->header('Content-Length', strlen($content));
+        foreach ($res->cookies as $cookie) {
+            $response->header('Set-Cookie', $cookie->toString());
+        }
 
         $response->status($res->statusCode);
         $response->end($content);

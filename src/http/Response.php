@@ -3,7 +3,7 @@
 namespace blink\http;
 
 use blink\core\MiddlewareTrait;
-use blink\core\Object;
+use blink\core\BaseObject;
 use blink\core\ShouldBeRefreshed;
 use blink\support\Json;
 use blink\core\InvalidParamException;
@@ -11,9 +11,10 @@ use blink\core\InvalidParamException;
 /**
  * Class Response
  *
+ * @property CookieBag $cookies
  * @package blink\http
  */
-class Response extends Object implements ShouldBeRefreshed
+class Response extends BaseObject implements ShouldBeRefreshed
 {
     use MiddlewareTrait;
 
@@ -27,6 +28,7 @@ class Response extends Object implements ShouldBeRefreshed
     public $version = '1.0';
 
     public $statusCode = 200;
+
     public $statusText;
 
     public static $httpStatuses = [
@@ -98,6 +100,7 @@ class Response extends Object implements ShouldBeRefreshed
     ];
 
     protected $content;
+
     protected $prepared = false;
 
     public function init()
@@ -120,6 +123,39 @@ class Response extends Object implements ShouldBeRefreshed
         }
     }
 
+    /**
+     * Redirects to the specified url.
+     *
+     * @param string $url
+     * @param int    $statusCode
+     * @since 0.2.0
+     */
+    public function redirect($url, $statusCode = 302)
+    {
+        if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
+            $url = request()->root() . $url;
+        }
+
+        $this->status($statusCode);
+        $this->headers->set('Location', $url);
+    }
+
+    private $_cookies;
+
+    /**
+     * Returns the cookies that should be sent with the response.
+     *
+     * @return CookieBag
+     */
+    public function getCookies()
+    {
+        if (!$this->_cookies) {
+            $this->_cookies = new CookieBag();
+        }
+
+        return $this->_cookies;
+    }
+
     public function with($data)
     {
         $this->data = $data;
@@ -133,9 +169,11 @@ class Response extends Object implements ShouldBeRefreshed
     public function prepare()
     {
         if (!$this->prepared) {
-            $this->content = is_string($this->data) ? $this->data : Json::encode($this->data);
-            if (!is_string($this->data)) {
-                $this->headers->set('Content-Type', 'application/json');
+            if ($this->data !== null) {
+                $this->content = is_string($this->data) ? $this->data : Json::encode($this->data);
+                if (!is_string($this->data) && !$this->headers->has('Content-Type')) {
+                    $this->headers->set('Content-Type', 'application/json');
+                }
             }
 
             $this->prepared = true;

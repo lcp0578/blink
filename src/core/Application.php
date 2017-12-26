@@ -8,6 +8,13 @@ use FastRoute;
 use blink\log\Logger;
 use blink\http\Request;
 use blink\http\Response;
+use blink\console\ShellCommand;
+use blink\console\ServerCommand;
+use blink\console\ServerReloadCommand;
+use blink\console\ServerRestartCommand;
+use blink\console\ServerServeCommand;
+use blink\console\ServerStartCommand;
+use blink\console\ServerStopCommand;
 
 /**
  * Class Application
@@ -16,7 +23,7 @@ use blink\http\Response;
  */
 class Application extends ServiceLocator
 {
-    const VERSION = '0.1.0';
+    const VERSION = '0.4.0 (dev)';
 
     /**
      * The name for the application.
@@ -24,12 +31,20 @@ class Application extends ServiceLocator
      * @var string
      */
     public $name = 'blink';
+
     /**
      * The root path for the application.
      *
      * @var string
      */
     public $root;
+
+    /**
+     * The installed application plugins.
+     *
+     * @var array
+     */
+    public $plugins = [];
 
     /**
      * Available console commands.
@@ -60,11 +75,21 @@ class Application extends ServiceLocator
 
     public $runtime;
 
+    public $server;
+
     public $controllerNamespace;
 
+    public $currentRequest;
+
     protected $dispatcher;
+
     protected $bootstrapped = false;
+
     protected $refreshing = [];
+
+    protected $lastError;
+
+    protected $router;
 
     public function init()
     {
@@ -72,22 +97,49 @@ class Application extends ServiceLocator
             throw new InvalidParamException("The param: 'root' is invalid");
         }
 
-        $this->services = array_merge($this->defaultServices(), $this->services);
+        $this->router = $this->createRouter();
 
         Container::$app = $this;
         Container::$instance = new Container();
     }
 
-
+    /**
+     * @deprecated
+     */
     public function bootstrap()
     {
-        if (!$this->bootstrapped) {
-            $this->initializeConfig();
-            $this->registerServices();
-            $this->registerRoutes();
-            $this->bootstrapped = true;
+        $this->bootstrapIfNeeded();
+    }
 
-            $this->get('log')->info('application started');
+    /**
+     * @since 0.3
+     */
+    public function bootstrapIfNeeded()
+    {
+        if (!$this->bootstrapped) {
+            try {
+                $this->initializeConfig();
+                $this->registerServices();
+                $this->registerPlugins();
+                $this->registerRoutes();
+                $this->bootstrapped = true;
+            } catch (\Exception $e) {
+                if ($this->environment === 'test') {
+                    throw $e;
+                }
+
+                $this->lastError = $e;
+                $this->get('log')
+                     ->emergency($e);
+            } catch (\Throwable $e) {
+                if ($this->environment === 'test') {
+                    throw $e;
+                }
+
+                $this->lastError = $e;
+                $this->get('log')
+                     ->emergency($e);
+            }
         }
 
         return $this;
@@ -100,6 +152,13 @@ class Application extends ServiceLocator
 
     protected function registerServices()
     {
+        if (is_string($this->services)) {
+            $this->services = require $this->services;
+        }
+
+        $this->services = array_merge($this->defaultServices(), $this->services);
+
+
         foreach ($this->services as $id => $definition) {
             $this->bind($id, $definition);
         }
@@ -111,13 +170,51 @@ class Application extends ServiceLocator
         }
     }
 
+    protected function registerPlugins()
+    {
+        if (is_string($this->plugins)) {
+            $this->plugins = require $this->plugins;
+        }
+
+        foreach ($this->plugins as $name => $definition) {
+            $this->plugins[$name] = $plugin = make($definition);
+            $plugin->install($this);
+        }
+    }
+
+    protected function createRouter()
+    {
+        return new FastRoute\RouteCollector(
+            new FastRoute\RouteParser\Std(),
+            new FastRoute\DataGenerator\GroupCountBased()
+        );
+    }
+
     protected function registerRoutes()
     {
-        $this->dispatcher = FastRoute\simpleDispatcher(function(FastRoute\RouteCollector $r) {
-            foreach ($this->routes as list($method, $route, $handler)) {
-                $r->addRoute($method, $route, $handler);
+        if (is_string($this->routes)) {
+            $this->routes = require $this->routes;
+        }
+
+        foreach ($this->routes as $value) {
+            if (!is_array($value[0]) && is_array($value[1])) {
+                $this->group($value[0], $value[1]);
+            } else {
+                $this->route($value[0], $value[1], $value[2]);
             }
-        });
+        }
+    }
+
+    /**
+     * @return FastRoute\Dispatcher\GroupCountBased
+     */
+    public function getDispatcher()
+    {
+        if ($this->dispatcher === null) {
+            $this->dispatcher = new FastRoute\Dispatcher\GroupCountBased($this->router->getData());
+        }
+
+        return $this->dispatcher;
     }
 
     public function defaultServices()
@@ -138,15 +235,70 @@ class Application extends ServiceLocator
         ];
     }
 
+    /**
+     * Returns the default console commands definitions.
+     *
+     * @return array
+     */
+    public function defaultCommands()
+    {
+        return [
+            'server' => [
+                'class' => ServerCommand::class,
+            ],
+            'server:start' => [
+                'class' => ServerStartCommand::class,
+            ],
+            'server:stop' => [
+                'class' => ServerStopCommand::class,
+            ],
+            'server:restart' => [
+                'class' => ServerRestartCommand::class,
+            ],
+            'server:reload' => [
+                'class' => ServerReloadCommand::class,
+            ],
+            'server:serve' => [
+                'class' => ServerServeCommand::class,
+            ],
+            'shell' => [
+                'class' => ShellCommand::class,
+            ]
+        ];
+    }
+
+    /**
+     * Returns all console commands definitions.
+     *
+     * @return array
+     */
+    public function consoleCommands()
+    {
+        return array_merge_recursive($this->defaultCommands(), $this->commands);
+    }
+
     public function route($method, $route, $handler)
     {
-        $this->routes[] = [$method, $route, $handler];
+        $this->router->addRoute($method, $route, $handler);
+
+        return $this;
+    }
+
+    public function group($group, $routes)
+    {
+        $this->router->addGroup($group, function (FastRoute\RouteCollector $router) use ($routes) {
+            foreach ($routes as list($method, $route, $handler)) {
+                $router->addRoute($method, $route, $handler);
+            }
+        });
 
         return $this;
     }
 
     public function makeRequest($config = [])
     {
+        $this->bootstrapIfNeeded();
+
         $request = $this->get('request');
 
         foreach ($config as $name => $value) {
@@ -163,6 +315,12 @@ class Application extends ServiceLocator
      */
     public function handleRequest($request)
     {
+        if ($this->lastError) {
+            return $this->internalServerError();
+        }
+
+        $this->currentRequest = $request;
+
         /** @var Response $response */
         $response = $this->get('response');
 
@@ -170,12 +328,19 @@ class Application extends ServiceLocator
             $this->exec($request, $response);
         } catch (\Exception $e) {
             $response->data = $e;
-            $this->get('errorHandler')->handleException($e);
+            $this->get('errorHandler')
+                 ->handleException($e);
+        } catch (\Throwable $e) {
+            $response->data = $e;
+            $this->get('errorHandler')
+                 ->handleException($e);
         }
 
         try {
             $response->callMiddleware();
         } catch (\Exception $e) {
+            $response->data = $e;
+        } catch (\Throwable $e) {
             $response->data = $e;
         }
 
@@ -184,12 +349,27 @@ class Application extends ServiceLocator
         $response->prepare();
         $this->refreshServices();
 
+        $this->currentRequest = null;
+
+        return $response;
+    }
+
+    protected function internalServerError()
+    {
+        $response = new Response([
+            'data' => $this->lastError ?: new HttpException(500, 'There was an internal server error'),
+        ]);
+
+        $this->formatException($response->data, $response);
+
+        $response->prepare();
+
         return $response;
     }
 
     protected function formatException($e, $response)
     {
-        if (!$response->data instanceof \Exception) {
+        if (!$response->data instanceof \Exception && !$response->data instanceof \Throwable) {
             return;
         }
 
@@ -223,32 +403,13 @@ class Application extends ServiceLocator
 
     protected function refreshServices()
     {
-        foreach($this->refreshing as $id => $_) {
+        foreach ($this->refreshing as $id => $_) {
             $this->unbind($id);
             $this->bind($id, $this->services[$id]);
         }
     }
 
-    public function handleConsole($input, $output)
-    {
-        $app = new \blink\core\console\Application([
-            'name' => 'Blink Command Runner',
-            'version' => self::VERSION,
-            'blink' => $this,
-        ]);
-
-        $commands = array_merge($this->commands, [
-            'blink\console\ServerCommand',
-        ]);
-
-        foreach ($commands as $command) {
-            $app->add(make(['class' => $command, 'blink' => $this]));
-        }
-
-        return $app->run($input, $output);
-    }
-
-    protected function exceptionToArray(\Exception $exception)
+    protected function exceptionToArray($exception)
     {
         $array = [
             'name' => get_class($exception),
@@ -273,7 +434,7 @@ class Application extends ServiceLocator
 
     protected function dispatch($request)
     {
-        $info = $this->dispatcher->dispatch($request->method, $request->path);
+        $info = $this->getDispatcher()->dispatch($request->method, $request->path);
 
         switch ($info[0]) {
             case FastRoute\Dispatcher::NOT_FOUND:
@@ -291,17 +452,20 @@ class Application extends ServiceLocator
     {
         if ($handler instanceof Closure) {
             $action = $handler;
-        } else if (($pos = strpos($handler, '@')) !== false) {
-            $class = substr($handler, 0, $pos);
-            $method = substr($handler, $pos + 1);
-
-            if ($class[0] !== '\\' && $this->controllerNamespace) {
-                $class = $this->controllerNamespace . '\\' . $class;
-            }
-
-            $action = [$this->get($class), $method];
         } else {
-            throw new HttpException(404);
+            if (($pos = strpos($handler, '@')) !== false) {
+                $class = substr($handler, 0, $pos);
+                $method = substr($handler, $pos + 1);
+
+                if ($class[0] !== '\\' && $this->controllerNamespace) {
+                    $class = $this->controllerNamespace . '\\' . $class;
+                    $class = strtr($class, '/', '\\');
+                }
+
+                $action = [$this->get($class), $method];
+            } else {
+                throw new HttpException(404);
+            }
         }
 
         return $action;
@@ -309,7 +473,6 @@ class Application extends ServiceLocator
 
     protected function runAction($action, $args, $request, $response)
     {
-
         $this->beforeAction($action, $request);
 
         $data = $this->call($action, $args);
@@ -350,6 +513,5 @@ class Application extends ServiceLocator
      */
     public function shutdown()
     {
-
     }
 }

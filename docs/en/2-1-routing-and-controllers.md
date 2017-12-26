@@ -34,7 +34,6 @@ return [
 ];
 ```
 
-
 Routing with Parameters
 -----------------------
 
@@ -74,6 +73,26 @@ return [
 ];
 ```
 
+Route Groups
+------------
+
+In large projects, in order to manage routes more efficiently, it is possible split routes into multiple groups,
+each group have it's own prefix.
+
+
+```php
+return [
+    ['/api', [
+        ['GET', '/foo', 'handler1']
+        ['GET', '/bar', 'handler2']
+    ]]
+];
+```
+
+The example above defined a route group that prefixed with `/api`. A route group requires two components, the prefix and 
+the sub-routes definitions.
+
+
 Controller
 ----------
 
@@ -83,7 +102,7 @@ specify class method as route handler. Here is the example:
 
 ```php
 return [
-    ['GET', '/', '/app/http/controllers/IndexController@index']
+    ['GET', '/', '\app\http\controllers\IndexController@index']
 ];
 ```
 
